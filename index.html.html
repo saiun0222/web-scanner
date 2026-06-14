@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>かんたん文書スキャナー</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; margin: 0; padding: 20px; background-color: #f4f4f9; }
+        video, canvas { width: 100%; max-width: 400px; border: 2px solid #333; border-radius: 8px; margin-bottom: 15px; }
+        button { padding: 12px 24px; font-size: 16px; margin: 5px; border: none; border-radius: 5px; cursor: pointer; }
+        #captureBtn { background-color: #007bff; color: white; }
+        #pdfBtn { background-color: #28a745; color: white; display: none; } /* 初期状態は隠しておく */
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status { color: #d9534f; font-weight: bold; margin-bottom: 10px; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+    <h2>文書スキャナー</h2>
+    <div id="status">システム準備中... 少々お待ちください。</div>
+    
+    <video id="camera" autoplay playsinline></video>
+    <br>
+    <button id="captureBtn" disabled>スキャン（撮影して白黒化）</button>
+    <br><br>
+
+    <h3>スキャン結果</h3>
+    <canvas id="snapshot"></canvas>
+    <br>
+    <button id="pdfBtn">PDFとして保存する</button>
+
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();"></script>
+
+    <script>
+        const video = document.getElementById('camera');
+        const canvas = document.getElementById('snapshot');
+        const context = canvas.getContext('2d');
+        const captureBtn = document.getElementById('captureBtn');
+        const pdfBtn = document.getElementById('pdfBtn');
+        const statusDiv = document.getElementById('status');
+
+        let isOpenCvReady = false;
+
+        // 1. 準備完了の合図
+        function onOpenCvReady() {
+            isOpenCvReady = true;
+            statusDiv.textContent = "準備完了！撮影できます。";
+            statusDiv.style.color = "#5cb85c";
+            captureBtn.disabled = false;
+        }
+
+        // 2. カメラを起動する
+        const constraints = { video: { facingMode: 'environment' } };
+        navigator.mediaDevices.getUserMedia(constraints)
+            .then((stream) => { video.srcObject = stream; })
+            .catch((err) => {
+                console.error("カメラエラー: ", err);
+                alert("カメラへのアクセスを許可してください。");
+            });
+
+        // 3. 「スキャン」ボタンが押されたときの処理
+        captureBtn.addEventListener('click', () => {
+            if (!isOpenCvReady) return;
+
+            // カメラの映像をCanvas（画用紙）に写す
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // 画像を白黒にして文字をくっきりさせる（OpenCVの機能）
+            try {
+                let src = cv.imread(canvas);
+                let dst = new cv.Mat();
+                cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY, 0); // 白黒化
+                cv.adaptiveThreshold(dst, dst, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY, 11, 2); // 影を消す
+                cv.imshow('snapshot', dst); // 処理した画像を表示
+                src.delete(); dst.delete(); // メモリのお掃除
+                
+                // PDF保存ボタンを表示する
+                pdfBtn.style.display = 'inline-block';
+            } catch (err) {
+                console.error("画像処理エラー: ", err);
+            }
+        });
+
+        // 4. 「PDFとして保存する」ボタンが押されたときの処理
+        pdfBtn.addEventListener('click', () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+
+            // 画像のデータを取り出す
+            const imgData = canvas.toDataURL('image/jpeg', 0.9);
+
+            // A4サイズに合わせて画像を配置
+            const pdfWidth = 190; // A4幅(210) - 余白(左右10ずつ)
+            const pdfHeight = (canvas.height * pdfWidth) / canvas.width; // 縦横比をキープ
+            
+            doc.addImage(imgData, 'JPEG', 10, 10, pdfWidth, pdfHeight);
+            doc.save('scanned_document.pdf'); // パソコンやスマホにダウンロード
+        });
+    </script>
+</body>
+</html>
